@@ -1,32 +1,10 @@
 import { useState, useRef, useEffect } from "react";
+import { createClient } from "@supabase/supabase-js";
 
-const DEMO_VEHICLES = [
-  { id: "v1", plate: "1234 ABC", model: "Mercedes Sprinter", year: 2021, km: 87400, color: "#E8A838" },
-  { id: "v2", plate: "5678 DEF", model: "Ford Transit", year: 2020, km: 112300, color: "#3B82F6" },
-  { id: "v3", plate: "9012 GHI", model: "Volkswagen Crafter", year: 2022, km: 54200, color: "#10B981" },
-];
-const DEMO_EXPENSES = [
-  { id: "e1", vehicleId: "v1", date: "2024-03-15", category: "Combustible", amount: 124.50, description: "Gasoil - Repsol A6", supplier: "Repsol" },
-  { id: "e2", vehicleId: "v1", date: "2024-02-10", category: "Reparación", amount: 380.00, description: "Cambio frenos delanteros", supplier: "Talleres Pérez" },
-  { id: "e3", vehicleId: "v2", date: "2024-03-18", category: "Combustible", amount: 156.80, description: "Gasoil - BP Autopista", supplier: "BP" },
-  { id: "e4", vehicleId: "v2", date: "2024-01-22", category: "Mantenimiento", amount: 210.00, description: "Revisión 100.000 km + filtros", supplier: "Ford Service" },
-  { id: "e5", vehicleId: "v3", date: "2024-03-20", category: "Neumáticos", amount: 620.00, description: "4 neumáticos Michelin Agilis", supplier: "Neumáticos Sur" },
-  { id: "e6", vehicleId: "v1", date: "2024-04-02", category: "Multa", amount: 200.00, description: "Multa aparcamiento zona carga", supplier: "Ayuntamiento" },
-];
-const DEMO_REPAIRS = [
-  { id: "r1", vehicleId: "v1", date: "2024-02-10", description: "Cambio frenos delanteros", workshop: "Talleres Pérez", cost: 380.00, km: 85200, status: "Completada" },
-  { id: "r2", vehicleId: "v2", date: "2024-01-22", description: "Revisión 100.000 km + filtros aceite y aire", workshop: "Ford Service", cost: 210.00, km: 100000, status: "Completada" },
-  { id: "r3", vehicleId: "v3", date: "2023-11-05", description: "Reparación alternador", workshop: "ElectroCar", cost: 450.00, km: 48000, status: "Completada" },
-  { id: "r4", vehicleId: "v1", date: "2024-04-10", description: "ITV pendiente + revisión pre-ITV", workshop: "Talleres Pérez", cost: 0, km: 87400, status: "Pendiente" },
-];
-const DEMO_DOCS = [
-  { id: "d1", vehicleId: "v1", name: "Póliza Seguro 2024", type: "Seguro", expiry: "2024-12-31", size: "—" },
-  { id: "d2", vehicleId: "v1", name: "Ficha Técnica", type: "Documento", expiry: null, size: "—" },
-  { id: "d3", vehicleId: "v2", name: "Póliza Seguro 2024", type: "Seguro", expiry: "2024-11-15", size: "—" },
-  { id: "d4", vehicleId: "v2", name: "Permiso de Circulación", type: "Documento", expiry: null, size: "—" },
-  { id: "d5", vehicleId: "v3", name: "Póliza Seguro 2024", type: "Seguro", expiry: "2025-01-20", size: "—" },
-  { id: "d6", vehicleId: "v3", name: "Manual Usuario", type: "Manual", expiry: null, size: "—" },
-];
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+const ANTHROPIC_API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY || "";
 
 const CATEGORIES = ["Combustible", "Reparación", "Mantenimiento", "Neumáticos", "Multa", "Peaje", "Lavado", "Otro"];
 const DOC_TYPES = ["Seguro", "Documento", "Manual", "Factura", "Contrato", "Otro"];
@@ -34,16 +12,6 @@ const categoryColor = {
   "Combustible": "#F59E0B", "Reparación": "#EF4444", "Mantenimiento": "#3B82F6",
   "Neumáticos": "#8B5CF6", "Multa": "#EC4899", "Peaje": "#6B7280", "Lavado": "#06B6D4", "Otro": "#9CA3AF",
 };
-
-// ── Storage: localStorage para Vercel ────────────────────────────────────────
-const ANTHROPIC_API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY || "";
-
-function storageGet(key) {
-  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch { return null; }
-}
-function storageSet(key, value) {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
-}
 
 export default function FleetManager() {
   const [ready, setReady] = useState(false);
@@ -69,18 +37,22 @@ export default function FleetManager() {
   const [newDoc, setNewDoc] = useState({ vehicleId: "", name: "", type: "Seguro", expiry: "" });
   const [expenseForm, setExpenseForm] = useState({ vehicleId: "", date: "", category: "", amount: "", description: "", supplier: "" });
 
+  // ── Load all data from Supabase ─────────────────────────────────────────
   useEffect(() => {
-    setVehicles(storageGet("fleet:vehicles") ?? DEMO_VEHICLES);
-    setExpenses(storageGet("fleet:expenses") ?? DEMO_EXPENSES);
-    setRepairs(storageGet("fleet:repairs") ?? DEMO_REPAIRS);
-    setDocs(storageGet("fleet:docs") ?? DEMO_DOCS);
-    setReady(true);
+    (async () => {
+      const [v, e, r, d] = await Promise.all([
+        supabase.from("vehicles").select("*"),
+        supabase.from("expenses").select("*"),
+        supabase.from("repairs").select("*"),
+        supabase.from("docs").select("*"),
+      ]);
+      setVehicles(v.data || []);
+      setExpenses((e.data || []).map(x => ({ ...x, vehicleId: x.vehicle_id, amount: Number(x.amount) })));
+      setRepairs((r.data || []).map(x => ({ ...x, vehicleId: x.vehicle_id, cost: Number(x.cost) })));
+      setDocs((d.data || []).map(x => ({ ...x, vehicleId: x.vehicle_id })));
+      setReady(true);
+    })();
   }, []);
-
-  const saveVehicles = (data) => { setVehicles(data); storageSet("fleet:vehicles", data); };
-  const saveExpenses = (data) => { setExpenses(data); storageSet("fleet:expenses", data); };
-  const saveRepairs  = (data) => { setRepairs(data);  storageSet("fleet:repairs",  data); };
-  const saveDocs     = (data) => { setDocs(data);     storageSet("fleet:docs",     data); };
 
   const showNotif = (msg, type = "success") => {
     setNotification({ msg, type });
@@ -90,6 +62,7 @@ export default function FleetManager() {
   const totalByVehicle = (vid) => expenses.filter(e => e.vehicleId === vid).reduce((s, e) => s + e.amount, 0);
   const totalAll = expenses.reduce((s, e) => s + e.amount, 0);
 
+  // ── AI invoice scan ─────────────────────────────────────────────────────
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -106,8 +79,7 @@ export default function FleetManager() {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
+          model: "claude-sonnet-4-20250514", max_tokens: 1000,
           messages: [{ role: "user", content: [
             { type: "image", source: { type: "base64", media_type: file.type || "image/jpeg", data: base64 } },
             { type: "text", text: `Analiza esta factura/ticket y extrae los datos. Responde SOLO con JSON sin markdown:\n{"supplier":"nombre empresa","date":"YYYY-MM-DD","amount":número,"category":"Combustible|Reparación|Mantenimiento|Neumáticos|Multa|Peaje|Lavado|Otro","description":"descripción breve","confidence":"alta|media|baja"}` }
@@ -126,48 +98,54 @@ export default function FleetManager() {
     setScanning(false);
   };
 
-  const saveExpense = () => {
+  const saveExpense = async () => {
     if (!expenseForm.vehicleId || !expenseForm.amount) { showNotif("Selecciona vehículo e importe", "error"); return; }
-    const updated = [{ id: "e" + Date.now(), vehicleId: expenseForm.vehicleId, date: expenseForm.date || new Date().toISOString().slice(0, 10), category: expenseForm.category || "Otro", amount: parseFloat(expenseForm.amount), description: expenseForm.description, supplier: expenseForm.supplier }, ...expenses];
-    saveExpenses(updated);
+    const rec = { id: "e" + Date.now(), vehicle_id: expenseForm.vehicleId, date: expenseForm.date || new Date().toISOString().slice(0, 10), category: expenseForm.category || "Otro", amount: parseFloat(expenseForm.amount), description: expenseForm.description, supplier: expenseForm.supplier };
+    const { error } = await supabase.from("expenses").insert(rec);
+    if (error) { showNotif("Error al guardar", "error"); return; }
+    setExpenses(p => [{ ...rec, vehicleId: rec.vehicle_id }, ...p]);
     setScanModal(false); setScannedData(null);
     setExpenseForm({ vehicleId: "", date: "", category: "", amount: "", description: "", supplier: "" });
     showNotif("Gasto guardado ✓");
   };
 
-  const saveVehicle = () => {
+  const saveVehicle = async () => {
     if (!newVehicle.plate || !newVehicle.model) { showNotif("Matrícula y modelo obligatorios", "error"); return; }
-    saveVehicles([...vehicles, { id: "v" + Date.now(), ...newVehicle, km: parseInt(newVehicle.km) || 0 }]);
+    const rec = { id: "v" + Date.now(), plate: newVehicle.plate, model: newVehicle.model, year: parseInt(newVehicle.year) || null, km: parseInt(newVehicle.km) || 0, color: newVehicle.color };
+    const { error } = await supabase.from("vehicles").insert(rec);
+    if (error) { showNotif("Error al guardar", "error"); return; }
+    setVehicles(p => [...p, rec]);
     setAddVehicleModal(false); setNewVehicle({ plate: "", model: "", year: "", km: "", color: "#E8A838" });
     showNotif("Vehículo añadido ✓");
   };
 
-  const saveRepair = () => {
+  const saveRepair = async () => {
     if (!newRepair.vehicleId || !newRepair.description) { showNotif("Vehículo y descripción obligatorios", "error"); return; }
-    saveRepairs([{ id: "r" + Date.now(), ...newRepair, cost: parseFloat(newRepair.cost) || 0, km: parseInt(newRepair.km) || 0 }, ...repairs]);
+    const rec = { id: "r" + Date.now(), vehicle_id: newRepair.vehicleId, date: newRepair.date, description: newRepair.description, workshop: newRepair.workshop, cost: parseFloat(newRepair.cost) || 0, km: parseInt(newRepair.km) || 0, status: newRepair.status };
+    const { error } = await supabase.from("repairs").insert(rec);
+    if (error) { showNotif("Error al guardar", "error"); return; }
+    setRepairs(p => [{ ...rec, vehicleId: rec.vehicle_id }, ...p]);
     setAddRepairModal(false); setNewRepair({ vehicleId: "", date: "", description: "", workshop: "", cost: "", km: "", status: "Pendiente" });
     showNotif("Reparación guardada ✓");
   };
 
-  const saveDoc = () => {
+  const saveDoc = async () => {
     if (!newDoc.vehicleId || !newDoc.name) { showNotif("Vehículo y nombre obligatorios", "error"); return; }
-    saveDocs([...docs, { id: "d" + Date.now(), ...newDoc, size: "—" }]);
+    const rec = { id: "d" + Date.now(), vehicle_id: newDoc.vehicleId, name: newDoc.name, type: newDoc.type, expiry: newDoc.expiry || null, size: "—" };
+    const { error } = await supabase.from("docs").insert(rec);
+    if (error) { showNotif("Error al guardar", "error"); return; }
+    setDocs(p => [...p, { ...rec, vehicleId: rec.vehicle_id }]);
     setAddDocModal(false); setNewDoc({ vehicleId: "", name: "", type: "Seguro", expiry: "" });
     showNotif("Documento guardado ✓");
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteConfirm) return;
     const { type, id } = deleteConfirm;
-    if (type === "expense") saveExpenses(expenses.filter(e => e.id !== id));
-    if (type === "repair")  saveRepairs(repairs.filter(r => r.id !== id));
-    if (type === "doc")     saveDocs(docs.filter(d => d.id !== id));
-    if (type === "vehicle") {
-      saveVehicles(vehicles.filter(v => v.id !== id));
-      saveExpenses(expenses.filter(e => e.vehicleId !== id));
-      saveRepairs(repairs.filter(r => r.vehicleId !== id));
-      saveDocs(docs.filter(d => d.vehicleId !== id));
-    }
+    if (type === "expense") { await supabase.from("expenses").delete().eq("id", id); setExpenses(p => p.filter(x => x.id !== id)); }
+    if (type === "repair")  { await supabase.from("repairs").delete().eq("id", id);  setRepairs(p => p.filter(x => x.id !== id)); }
+    if (type === "doc")     { await supabase.from("docs").delete().eq("id", id);     setDocs(p => p.filter(x => x.id !== id)); }
+    if (type === "vehicle") { await supabase.from("vehicles").delete().eq("id", id); setVehicles(p => p.filter(x => x.id !== id)); setExpenses(p => p.filter(x => x.vehicleId !== id)); setRepairs(p => p.filter(x => x.vehicleId !== id)); setDocs(p => p.filter(x => x.vehicleId !== id)); }
     setDeleteConfirm(null);
     showNotif("Eliminado ✓");
   };
@@ -228,7 +206,7 @@ export default function FleetManager() {
               <div style={{ background: "#FBBF24", borderRadius: 4, width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>🚐</div>
               <div>
                 <div style={{ fontFamily: "'Barlow Condensed',sans-serif", fontWeight: 800, fontSize: 20, letterSpacing: 1, color: "#F9FAFB" }}>FLEET</div>
-                <div style={{ fontFamily: "'DM Mono'", fontSize: 9, color: "#6B7280", letterSpacing: 2, marginTop: -2 }}>GESTOR DE FLOTA</div>
+                <div style={{ fontFamily: "'DM Mono'", fontSize: 9, color: "#6B7280", letterSpacing: 2, marginTop: -2 }}>GESTOR DE FLOTA · ☁️ SINCRONIZADO</div>
               </div>
             </div>
             <button className="btn-primary" onClick={() => setScanModal(true)} style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -265,31 +243,33 @@ export default function FleetManager() {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
               <div className="card" style={{ padding: 16 }}>
                 <div className="section-title">Gasto por Vehículo</div>
-                {vehicles.map(v => {
-                  const total = totalByVehicle(v.id);
-                  const pct = totalAll > 0 ? (total / totalAll) * 100 : 0;
-                  return (
-                    <div key={v.id} style={{ marginBottom: 14 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                        <span style={{ fontFamily: "'Barlow Condensed'", fontWeight: 700, fontSize: 13 }}>{v.plate} <span style={{ color: "#6B7280", fontWeight: 400 }}>{v.model}</span></span>
-                        <span style={{ color: "#FBBF24", fontWeight: 700 }}>{total.toLocaleString("es-ES", { minimumFractionDigits: 2 })} €</span>
+                {vehicles.length === 0 ? <div style={{ color: "#6B7280", fontSize: 13 }}>Sin vehículos. Añade el primero.</div> :
+                  vehicles.map(v => {
+                    const total = totalByVehicle(v.id);
+                    const pct = totalAll > 0 ? (total / totalAll) * 100 : 0;
+                    return (
+                      <div key={v.id} style={{ marginBottom: 14 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                          <span style={{ fontFamily: "'Barlow Condensed'", fontWeight: 700, fontSize: 13 }}>{v.plate} <span style={{ color: "#6B7280", fontWeight: 400 }}>{v.model}</span></span>
+                          <span style={{ color: "#FBBF24", fontWeight: 700 }}>{total.toLocaleString("es-ES", { minimumFractionDigits: 2 })} €</span>
+                        </div>
+                        <div style={{ background: "#252836", borderRadius: 2, height: 4 }}>
+                          <div style={{ width: `${pct}%`, background: v.color, height: "100%", borderRadius: 2 }} />
+                        </div>
                       </div>
-                      <div style={{ background: "#252836", borderRadius: 2, height: 4 }}>
-                        <div style={{ width: `${pct}%`, background: v.color, height: "100%", borderRadius: 2 }} />
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
               </div>
               <div className="card" style={{ padding: 16 }}>
                 <div className="section-title">Gasto por Categoría</div>
-                {expensesByCategory.map(({ cat, total }) => (
-                  <div key={cat} className="expense-row">
-                    <div className="dot" style={{ background: categoryColor[cat] }} />
-                    <span style={{ flex: 1, fontFamily: "'Barlow Condensed'", fontWeight: 600, fontSize: 14 }}>{cat}</span>
-                    <span style={{ color: "#FBBF24" }}>{total.toLocaleString("es-ES", { minimumFractionDigits: 2 })} €</span>
-                  </div>
-                ))}
+                {expensesByCategory.length === 0 ? <div style={{ color: "#6B7280", fontSize: 13 }}>Sin gastos aún.</div> :
+                  expensesByCategory.map(({ cat, total }) => (
+                    <div key={cat} className="expense-row">
+                      <div className="dot" style={{ background: categoryColor[cat] }} />
+                      <span style={{ flex: 1, fontFamily: "'Barlow Condensed'", fontWeight: 600, fontSize: 14 }}>{cat}</span>
+                      <span style={{ color: "#FBBF24" }}>{total.toLocaleString("es-ES", { minimumFractionDigits: 2 })} €</span>
+                    </div>
+                  ))}
               </div>
             </div>
             {(pendingRepairs.length > 0 || expiringDocs.length > 0) && (
@@ -341,6 +321,7 @@ export default function FleetManager() {
               <h2 style={{ fontFamily: "'Barlow Condensed'", fontWeight: 800, fontSize: 24, letterSpacing: 1 }}>Vehículos</h2>
               <button className="btn-primary" onClick={() => setAddVehicleModal(true)}>+ Añadir Vehículo</button>
             </div>
+            {vehicles.length === 0 && <div style={{ color: "#6B7280", textAlign: "center", padding: 40 }}>Sin vehículos. Añade el primero.</div>}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 16 }}>
               {vehicles.map(v => {
                 const vRepairs = repairs.filter(r => r.vehicleId === v.id);
@@ -365,16 +346,15 @@ export default function FleetManager() {
                         </div>
                       ))}
                     </div>
-                    {selectedVehicle === v.id && (
+                    {selectedVehicle === v.id && vRepairs.length > 0 && (
                       <div style={{ marginTop: 12, borderTop: "1px solid #374151", paddingTop: 12 }}>
                         <div className="section-title">Últimas reparaciones</div>
-                        {vRepairs.length === 0 ? <div style={{ color: "#6B7280", fontSize: 13 }}>Sin reparaciones</div> :
-                          vRepairs.slice(0, 3).map(r => (
-                            <div key={r.id} style={{ fontSize: 12, padding: "4px 0", borderBottom: "1px solid #252836", display: "flex", justifyContent: "space-between" }}>
-                              <span style={{ color: "#D1D5DB" }}>{r.description}</span>
-                              <span className="badge" style={{ background: r.status === "Pendiente" ? "#EF444422" : "#10B98122", color: r.status === "Pendiente" ? "#EF4444" : "#10B981" }}>{r.status}</span>
-                            </div>
-                          ))}
+                        {vRepairs.slice(0, 3).map(r => (
+                          <div key={r.id} style={{ fontSize: 12, padding: "4px 0", borderBottom: "1px solid #252836", display: "flex", justifyContent: "space-between" }}>
+                            <span style={{ color: "#D1D5DB" }}>{r.description}</span>
+                            <span className="badge" style={{ background: r.status === "Pendiente" ? "#EF444422" : "#10B98122", color: r.status === "Pendiente" ? "#EF4444" : "#10B981" }}>{r.status}</span>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -391,6 +371,7 @@ export default function FleetManager() {
               <h2 style={{ fontFamily: "'Barlow Condensed'", fontWeight: 800, fontSize: 24, letterSpacing: 1 }}>Gastos</h2>
               <button className="btn-primary" onClick={() => setScanModal(true)}>📷 Escanear Factura</button>
             </div>
+            {expenses.length === 0 && <div style={{ color: "#6B7280", textAlign: "center", padding: 40 }}>Sin gastos. Escanea tu primera factura.</div>}
             {vehicles.map(v => {
               const vExp = expenses.filter(e => e.vehicleId === v.id);
               if (vExp.length === 0) return null;
@@ -427,6 +408,7 @@ export default function FleetManager() {
               <h2 style={{ fontFamily: "'Barlow Condensed'", fontWeight: 800, fontSize: 24, letterSpacing: 1 }}>Historial de Reparaciones</h2>
               <button className="btn-primary" onClick={() => setAddRepairModal(true)}>+ Nueva Reparación</button>
             </div>
+            {repairs.length === 0 && <div style={{ color: "#6B7280", textAlign: "center", padding: 40 }}>Sin reparaciones registradas.</div>}
             <div style={{ display: "grid", gap: 10 }}>
               {repairs.sort((a, b) => new Date(b.date) - new Date(a.date)).map(r => {
                 const v = getVehicle(r.vehicleId);
@@ -503,20 +485,11 @@ export default function FleetManager() {
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setScanModal(false)}>
           <div className="modal">
             <div style={{ fontFamily: "'Barlow Condensed'", fontWeight: 800, fontSize: 22, marginBottom: 20 }}>📷 Escanear Factura con IA</div>
-            {!ANTHROPIC_API_KEY && (
-              <div style={{ background: "#F59E0B22", border: "1px solid #F59E0B44", borderRadius: 4, padding: 12, marginBottom: 16, fontSize: 12, color: "#F59E0B" }}>
-                ⚠️ Para usar la IA, añade la variable VITE_ANTHROPIC_API_KEY en Vercel → Settings → Environment Variables
-              </div>
-            )}
             <div className="scan-drop" onClick={() => fileRef.current.click()} style={{ marginBottom: 16 }}>
               <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleImageUpload} />
-              {scanning ? (
-                <div><div style={{ fontSize: 32, marginBottom: 8 }}>⚙️</div><div style={{ fontFamily: "'Barlow Condensed'", fontWeight: 700, color: "#FBBF24" }}>Analizando con IA...</div></div>
-              ) : scannedData ? (
-                <div><div style={{ fontSize: 32, marginBottom: 6 }}>✅</div><div style={{ fontFamily: "'Barlow Condensed'", fontWeight: 700, color: "#10B981", marginBottom: 4 }}>Datos extraídos</div><span className="badge" style={{ background: "#374151", color: "#9CA3AF" }}>Confianza: {scannedData.confidence}</span></div>
-              ) : (
-                <div><div style={{ fontSize: 40, marginBottom: 8 }}>📷</div><div style={{ fontFamily: "'Barlow Condensed'", fontWeight: 700, fontSize: 16, color: "#9CA3AF" }}>Toca para subir foto de factura</div><div style={{ fontSize: 12, color: "#6B7280", marginTop: 4 }}>La IA extraerá los datos automáticamente</div></div>
-              )}
+              {scanning ? <div><div style={{ fontSize: 32, marginBottom: 8 }}>⚙️</div><div style={{ fontFamily: "'Barlow Condensed'", fontWeight: 700, color: "#FBBF24" }}>Analizando con IA...</div></div>
+              : scannedData ? <div><div style={{ fontSize: 32, marginBottom: 6 }}>✅</div><div style={{ fontFamily: "'Barlow Condensed'", fontWeight: 700, color: "#10B981", marginBottom: 4 }}>Datos extraídos</div><span className="badge" style={{ background: "#374151", color: "#9CA3AF" }}>Confianza: {scannedData.confidence}</span></div>
+              : <div><div style={{ fontSize: 40, marginBottom: 8 }}>📷</div><div style={{ fontFamily: "'Barlow Condensed'", fontWeight: 700, fontSize: 16, color: "#9CA3AF" }}>Toca para subir foto de factura</div><div style={{ fontSize: 12, color: "#6B7280", marginTop: 4 }}>La IA extraerá los datos automáticamente</div></div>}
             </div>
             <div style={{ display: "grid", gap: 12 }}>
               <div><label className="label">Vehículo *</label>
