@@ -5,6 +5,7 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const ANTHROPIC_API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY || "";
+const APP_PASSWORD = "325874Nn";
 
 const CATEGORIES = ["Combustible", "Reparación", "Mantenimiento", "Neumáticos", "Multa", "Peaje", "Lavado", "Otro"];
 const DOC_TYPES = ["Seguro", "Documento", "Manual", "Factura", "Contrato", "Otro"];
@@ -13,7 +14,60 @@ const categoryColor = {
   "Neumáticos": "#8B5CF6", "Multa": "#EC4899", "Peaje": "#6B7280", "Lavado": "#06B6D4", "Otro": "#9CA3AF",
 };
 
+function LoginScreen({ onLogin }) {
+  const [pwd, setPwd] = useState("");
+  const [error, setError] = useState(false);
+  const [shake, setShake] = useState(false);
+
+  const handleLogin = () => {
+    if (pwd === APP_PASSWORD) {
+      sessionStorage.setItem("fleet_auth", "1");
+      onLogin();
+    } else {
+      setError(true);
+      setShake(true);
+      setTimeout(() => setShake(false), 500);
+    }
+  };
+
+  return (
+    <div style={{ background: "#0F1117", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800&family=DM+Mono&display=swap');
+        @keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
+        .shake{animation:shake .4s ease}
+      `}</style>
+      <div style={{ width: "100%", maxWidth: 360, textAlign: "center" }}>
+        <div style={{ background: "#FBBF24", borderRadius: 12, width: 64, height: 64, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36, margin: "0 auto 20px" }}>🚐</div>
+        <div style={{ fontFamily: "'Barlow Condensed'", fontWeight: 800, fontSize: 32, color: "#F9FAFB", letterSpacing: 2, marginBottom: 4 }}>FLEET</div>
+        <div style={{ fontFamily: "'DM Mono'", fontSize: 11, color: "#6B7280", letterSpacing: 2, marginBottom: 40 }}>GESTOR DE FLOTA</div>
+
+        <div className={shake ? "shake" : ""} style={{ background: "#1A1D27", border: `1px solid ${error ? "#EF4444" : "#252836"}`, borderRadius: 8, padding: 24 }}>
+          <div style={{ fontFamily: "'Barlow Condensed'", fontSize: 11, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: "#6B7280", marginBottom: 8, textAlign: "left" }}>Contraseña</div>
+          <input
+            type="password"
+            value={pwd}
+            onChange={e => { setPwd(e.target.value); setError(false); }}
+            onKeyDown={e => e.key === "Enter" && handleLogin()}
+            placeholder="••••••••"
+            style={{ background: "#252836", border: `1px solid ${error ? "#EF4444" : "#374151"}`, borderRadius: 4, padding: "10px 14px", color: "#E5E7EB", fontFamily: "'DM Mono'", fontSize: 16, width: "100%", outline: "none", marginBottom: 8, letterSpacing: 4 }}
+            autoFocus
+          />
+          {error && <div style={{ color: "#EF4444", fontFamily: "'Barlow Condensed'", fontSize: 13, fontWeight: 700, marginBottom: 8, textAlign: "left" }}>Contraseña incorrecta</div>}
+          <button
+            onClick={handleLogin}
+            style={{ background: "#FBBF24", color: "#0F1117", border: "none", borderRadius: 4, padding: "10px 0", fontFamily: "'Barlow Condensed'", fontWeight: 800, fontSize: 15, letterSpacing: 1.5, textTransform: "uppercase", cursor: "pointer", width: "100%", marginTop: 4 }}
+          >
+            Entrar →
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function FleetManager() {
+  const [authed, setAuthed] = useState(!!sessionStorage.getItem("fleet_auth"));
   const [ready, setReady] = useState(false);
   const [tab, setTab] = useState("dashboard");
   const [vehicles, setVehicles] = useState([]);
@@ -37,8 +91,8 @@ export default function FleetManager() {
   const [newDoc, setNewDoc] = useState({ vehicleId: "", name: "", type: "Seguro", expiry: "" });
   const [expenseForm, setExpenseForm] = useState({ vehicleId: "", date: "", category: "", amount: "", description: "", supplier: "" });
 
-  // ── Load all data from Supabase ─────────────────────────────────────────
   useEffect(() => {
+    if (!authed) return;
     (async () => {
       const [v, e, r, d] = await Promise.all([
         supabase.from("vehicles").select("*"),
@@ -52,7 +106,9 @@ export default function FleetManager() {
       setDocs((d.data || []).map(x => ({ ...x, vehicleId: x.vehicle_id })));
       setReady(true);
     })();
-  }, []);
+  }, [authed]);
+
+  if (!authed) return <LoginScreen onLogin={() => setAuthed(true)} />;
 
   const showNotif = (msg, type = "success") => {
     setNotification({ msg, type });
@@ -62,7 +118,6 @@ export default function FleetManager() {
   const totalByVehicle = (vid) => expenses.filter(e => e.vehicleId === vid).reduce((s, e) => s + e.amount, 0);
   const totalAll = expenses.reduce((s, e) => s + e.amount, 0);
 
-  // ── AI invoice scan ─────────────────────────────────────────────────────
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -146,8 +201,7 @@ export default function FleetManager() {
     if (type === "repair")  { await supabase.from("repairs").delete().eq("id", id);  setRepairs(p => p.filter(x => x.id !== id)); }
     if (type === "doc")     { await supabase.from("docs").delete().eq("id", id);     setDocs(p => p.filter(x => x.id !== id)); }
     if (type === "vehicle") { await supabase.from("vehicles").delete().eq("id", id); setVehicles(p => p.filter(x => x.id !== id)); setExpenses(p => p.filter(x => x.vehicleId !== id)); setRepairs(p => p.filter(x => x.vehicleId !== id)); setDocs(p => p.filter(x => x.vehicleId !== id)); }
-    setDeleteConfirm(null);
-    showNotif("Eliminado ✓");
+    setDeleteConfirm(null); showNotif("Eliminado ✓");
   };
 
   const getVehicle = (id) => vehicles.find(v => v.id === id);
@@ -209,9 +263,12 @@ export default function FleetManager() {
                 <div style={{ fontFamily: "'DM Mono'", fontSize: 9, color: "#6B7280", letterSpacing: 2, marginTop: -2 }}>GESTOR DE FLOTA · ☁️ SINCRONIZADO</div>
               </div>
             </div>
-            <button className="btn-primary" onClick={() => setScanModal(true)} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 16 }}>📷</span> Escanear Factura
-            </button>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <button className="btn-primary" onClick={() => setScanModal(true)} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 16 }}>📷</span> Escanear Factura
+              </button>
+              <button className="btn-ghost" onClick={() => { sessionStorage.removeItem("fleet_auth"); setAuthed(false); }} title="Cerrar sesión">🔒</button>
+            </div>
           </div>
           <div style={{ display: "flex", gap: 2, marginTop: 6, overflowX: "auto" }}>
             {[["dashboard","📊 Panel"],["vehicles","🚐 Vehículos"],["expenses","💳 Gastos"],["repairs","🔧 Reparaciones"],["docs","📁 Documentos"]].map(([id, label]) => (
@@ -222,8 +279,6 @@ export default function FleetManager() {
       </div>
 
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 20px" }}>
-
-        {/* DASHBOARD */}
         {tab === "dashboard" && (
           <div style={{ display: "grid", gap: 20 }}>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
@@ -314,7 +369,6 @@ export default function FleetManager() {
           </div>
         )}
 
-        {/* VEHICLES */}
         {tab === "vehicles" && (
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
@@ -364,7 +418,6 @@ export default function FleetManager() {
           </div>
         )}
 
-        {/* EXPENSES */}
         {tab === "expenses" && (
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
@@ -401,7 +454,6 @@ export default function FleetManager() {
           </div>
         )}
 
-        {/* REPAIRS */}
         {tab === "repairs" && (
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
@@ -436,7 +488,6 @@ export default function FleetManager() {
           </div>
         )}
 
-        {/* DOCS */}
         {tab === "docs" && (
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
@@ -452,9 +503,7 @@ export default function FleetManager() {
                     <span style={{ color: "#9CA3AF" }}>— {v.model}</span>
                     <span className="badge" style={{ background: "#374151", color: "#9CA3AF", marginLeft: "auto" }}>{vDocs.length} docs</span>
                   </div>
-                  {vDocs.length === 0 ? (
-                    <div style={{ padding: "20px 16px", color: "#6B7280", fontSize: 13 }}>Sin documentos. Añade pólizas, fichas técnicas, etc.</div>
-                  ) : (
+                  {vDocs.length === 0 ? <div style={{ padding: "20px 16px", color: "#6B7280", fontSize: 13 }}>Sin documentos.</div> : (
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))" }}>
                       {vDocs.map(d => {
                         const isExpiring = d.expiry && (new Date(d.expiry) - new Date()) / (1000 * 60 * 60 * 24) < 60;
@@ -480,7 +529,6 @@ export default function FleetManager() {
         )}
       </div>
 
-      {/* SCAN MODAL */}
       {scanModal && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setScanModal(false)}>
           <div className="modal">
@@ -521,7 +569,6 @@ export default function FleetManager() {
         </div>
       )}
 
-      {/* ADD VEHICLE */}
       {addVehicleModal && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setAddVehicleModal(false)}>
           <div className="modal">
@@ -545,7 +592,6 @@ export default function FleetManager() {
         </div>
       )}
 
-      {/* ADD REPAIR */}
       {addRepairModal && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setAddRepairModal(false)}>
           <div className="modal">
@@ -580,7 +626,6 @@ export default function FleetManager() {
         </div>
       )}
 
-      {/* ADD DOC */}
       {addDocModal && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setAddDocModal(false)}>
           <div className="modal">
@@ -615,7 +660,6 @@ export default function FleetManager() {
         </div>
       )}
 
-      {/* DELETE CONFIRM */}
       {deleteConfirm && (
         <div className="modal-overlay">
           <div className="modal" style={{ maxWidth: 380, textAlign: "center" }}>
